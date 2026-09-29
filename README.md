@@ -2,7 +2,7 @@
 
 Play chords with your hands. Gesture Synth uses your webcam to track both hands and turns finger shapes, tilt, and height into a live chord instrument. Everything runs in the browser, and no video leaves your device.
 
-**Live demo:** [https://gesture-synth-s.netlify.app/]
+**Live demo:** https://gesture-synth-s.netlify.app/
 
 ## How to play
 
