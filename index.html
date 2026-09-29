@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Gesture Synth</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#1b1530; --panel:rgba(27,21,48,.72); --ink:#f1edff; --dim:#a79fc6; --lilac:#b9a8ff; --glow:#ffcf86; --line:rgba(241,237,255,.16); }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; background:var(--bg); color:var(--ink); font-family:Sora,system-ui,sans-serif; overflow:hidden; }
+  .stage { position:fixed; inset:0; }
+  video, canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+  video { filter:brightness(.62) saturate(.9); }
+  .stage::after { content:""; position:absolute; inset:0; background:linear-gradient(to bottom, rgba(27,21,48,.75), transparent 22%, transparent 45%, rgba(27,21,48,.92)); pointer-events:none; }
+  .top { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:max(14px, env(safe-area-inset-top)) 18px 14px; z-index:2; flex-wrap:wrap; }
+  h1 { margin:0; font-size:1.05rem; font-weight:700; letter-spacing:.01em; }
+  .ctl { display:flex; gap:8px; }
+  .tog, select { font:inherit; font-size:.85rem; font-weight:600; line-height:1; height:38px; color:var(--ink); background-color:var(--panel); border:1px solid var(--line); border-radius:999px; padding:0 16px; backdrop-filter:blur(10px); }
+  select { appearance:none; -webkit-appearance:none; padding-right:34px; cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23f1edff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 14px center; }
+  select option { color:#1b1530; background:#fff; }
+  .tog { cursor:pointer; }
+  .tog[aria-pressed="true"] { background:var(--lilac); color:var(--bg); border-color:var(--lilac); font-weight:600; }
+  select:focus-visible, button:focus-visible { outline:3px solid var(--glow); outline-offset:2px; }
+  .bottom { position:fixed; left:0; right:0; bottom:0; z-index:2; padding:0 18px max(18px, env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .chord { font-size:clamp(4rem, 15vw, 8rem); font-weight:700; line-height:1; color:var(--ink); text-shadow:0 0 40px rgba(185,168,255,.55); transition:color .15s; }
+  .chord.on { color:var(--glow); }
+  .quality { color:var(--dim); font-size:.95rem; margin-top:-6px; }
+  .pills { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; width:min(560px,100%); }
+  .pill { text-align:center; padding:9px 4px; border-radius:12px; background:var(--panel); border:1px solid var(--line); backdrop-filter:blur(10px); transition:background .12s, transform .12s, border-color .12s; }
+  .pill b { display:block; font-size:.95rem; }
+  .pill span { font-size:.72rem; color:var(--dim); }
+  .pill.on { background:var(--glow); border-color:var(--glow); transform:translateY(-4px); }
+  .pill.on b, .pill.on span { color:var(--bg); }
+  .meters { display:flex; gap:16px; width:min(560px,100%); }
+  .meters label { flex:1; font-size:.75rem; color:var(--dim); display:flex; flex-direction:column; gap:6px; }
+  .meter { height:6px; border-radius:99px; background:var(--line); overflow:hidden; }
+  .meter i { display:block; height:100%; width:50%; background:var(--lilac); border-radius:99px; transition:width .1s; }
+  .intro { position:fixed; inset:0; z-index:5; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; text-align:center; padding:24px; background:radial-gradient(ellipse at 50% 30%, #3a2a66, var(--bg) 70%); }
+  .intro.hidden { display:none; }
+  .intro h2 { margin:0; font-size:clamp(2rem,7vw,3.6rem); line-height:1.05; max-width:14ch; }
+  .intro p { margin:0; color:var(--dim); max-width:38ch; line-height:1.5; }
+  #start { font:inherit; font-weight:700; padding:14px 30px; border:0; border-radius:999px; background:var(--glow); color:var(--bg); font-size:1.05rem; cursor:pointer; }
+  #start:disabled { opacity:.6; cursor:wait; }
+  #msg { min-height:1.5em; font-size:.9rem; }
+  @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="stage"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
+<header class="top">
+  <h1>Gesture Synth</h1>
+  <div class="ctl">
+    <button class="tog" id="raise" aria-pressed="false">Raise</button>
+    <button class="tog" id="lower" aria-pressed="false">Lower</button>
+    <select id="key" aria-label="Key"></select>
+    <select id="sound" aria-label="Sound">
+      <option value="triangle">Warm</option>
+      <option value="sawtooth">Bright</option>
+      <option value="square">Retro</option>
+    </select>
+  </div>
+</header>
+<section class="bottom">
+  <div class="chord" id="chord">–</div>
+  <div class="quality" id="quality">left hand picks the chord</div>
+  <nav class="pills" id="pills" aria-label="Scale degrees"></nav>
+  <div class="meters">
+    <label>Volume (right hand height)<div class="meter"><i id="vol"></i></div></label>
+    <label>Filter openness (right hand lean)<div class="meter"><i id="bright"></i></div></label>
+  </div>
+</section>
+<div class="intro" id="intro">
+  <h2>Make music with your hands</h2>
+  <p>Left hand: fingers pick the chord, lean picks major or minor. Right hand: fingers pick the voicing, thumb picks the octave, height sets volume, lean sets the filter.</p>
+  <button id="start">Start playing</button>
+  <p id="msg">Camera access is required. Turn your volume up.</p>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+// ---- Settings you can change ----
+const SWAP_HANDS = false;            // raw camera feed is unmirrored, so labels are swapped. Flip if hands feel reversed.
+const SCALE = [0, 2, 4, 5, 7, 9, 11];   // major scale steps: I II III IV V VI VII
+const NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+// ---- Elements ----
+const $ = id => document.getElementById(id);
+const video = $("video"), canvas = $("overlay"), ctx = canvas.getContext("2d");
+const keySel = $("key");
+NOTES.forEach((n, i) => keySel.add(new Option(n, i)));
+keySel.value = 6;                   // F# by default
+const ROMAN = ["I","II","III","IV","V","VI","VII"];
+const pills = $("pills");
+ROMAN.forEach(r => { const d = document.createElement("div"); d.className = "pill"; d.innerHTML = "<b>" + r + "</b><span></span>"; pills.append(d); });
+let shift = 0, raiseOn = false, lowerOn = false;   // pitch shift state
+function updatePills() {
+  [...pills.children].forEach((el, i) => el.lastChild.textContent = NOTES[(Number(keySel.value) + SCALE[i] + shift + 12) % 12]);
+}
+function setActive(deg) { [...pills.children].forEach((el, i) => el.classList.toggle("on", i === deg - 1)); $("chord").classList.toggle("on", deg > 0); }
+keySel.onchange = updatePills; updatePills();
+
+// ---- Audio ----
+const filter = new Tone.Filter(1200, "lowpass").toDestination();
+const synth = new Tone.PolySynth(Tone.Synth, {
+  oscillator: { type: "triangle" },
+  envelope: { attack: 0.25, decay: 0.2, sustain: 0.8, release: 1.2 }
+}).connect(filter);
+synth.volume.value = -14;
+$("sound").onchange = e => synth.set({ oscillator: { type: e.target.value } });
+
+let current = null;                 // signature of the sounding chord
+let candidate = null, stable = 0;
+let minor = false;
+let voicing = 1, highOctave = false;   // set by the right hand
+let want = null;                       // set by the left hand each frame
+
+$("raise").onclick = () => { raiseOn = !raiseOn; $("raise").setAttribute("aria-pressed", raiseOn); };
+$("lower").onclick = () => { lowerOn = !lowerOn; $("lower").setAttribute("aria-pressed", lowerOn); };
+
+const VOICINGS = ["root position", "1st inversion", "7th", "dominant / diminished 7th"];
+
+function playChord(degree) {
+  const isMinor = minor;
+  const base = (highOctave ? 60 : 48) + (Number(keySel.value) + SCALE[degree - 1]) % 12 + shift;
+  const third = isMinor ? 3 : 4;
+  let steps, suffix = isMinor ? "m" : "";
+  if (voicing === 1) steps = [0, third, 7];
+  else if (voicing === 2) steps = [third, 7, 12];
+  else if (voicing === 3) { steps = [0, third, 7, isMinor ? 10 : 11]; suffix = isMinor ? "m7" : "maj7"; }
+  else if (isMinor) { steps = [0, 3, 6, 9]; suffix = "dim7"; }
+  else { steps = [0, 4, 7, 10]; suffix = "7"; }
+  let name = NOTES[base % 12] + suffix;
+  if (voicing === 2) name += "/" + NOTES[(base + third) % 12];
+  const notes = steps.map(x => Tone.Frequency(base + x, "midi").toNote());
+  synth.releaseAll();
+  synth.triggerAttack(notes);
+  $("chord").textContent = name;
+  $("quality").textContent = VOICINGS[voicing - 1] + " · " + (highOctave ? "high" : "low") + " octave" + (shift ? " · " + (shift > 0 ? "+1" : "-1") + " semitone" : "");
+  setActive(degree);
+}
+function stopChord() { synth.releaseAll(); $("chord").textContent = "–"; $("quality").textContent = "left hand picks the chord"; setActive(0); current = null; }
+
+// Runs once per frame after both hands are read. A chord only changes after 3 steady frames.
+function apply() {
+  if (!want) { if (current) stopChord(); candidate = null; return; }
+  const sig = [want.degree, minor, shift, voicing, highOctave].join("-");
+  if (candidate === sig) stable++; else { candidate = sig; stable = 0; }
+  if (stable >= 3 && current !== sig) { current = sig; playChord(want.degree); }
+}
+
+// ---- Hand analysis ----
+const dist = (h, a, b) => Math.hypot(h[a].x - h[b].x, h[a].y - h[b].y);
+const thumbOut = h => dist(h, 4, 17) > dist(h, 3, 17);
+const fingerUp = (h, tip, pip) => h[tip].y < h[pip].y;
+
+// Left hand: 1-5 fingers = I-V, index+pinky = VI, index+pinky+thumb = VII. 0 = no chord.
+function fingerDegree(h) {
+  const index = fingerUp(h, 8, 6), middle = fingerUp(h, 12, 10), ring = fingerUp(h, 16, 14), pinky = fingerUp(h, 20, 18);
+  const thumb = thumbOut(h);
+  if (index && pinky && !middle && !ring) return thumb ? 7 : 6;
+  return [index, middle, ring, pinky, thumb].filter(Boolean).length;
+}
+// Right hand: number of raised fingers, not counting the thumb (1-4)
+function rightFingers(h) {
+  return [[8, 6], [12, 10], [16, 14], [20, 18]].filter(([t, p]) => fingerUp(h, t, p)).length;
+}
+// Lean in on-screen terms: positive = fingers lean right on the mirrored display
+function lean(h) {
+  const dx = h[9].x - h[0].x, dy = h[9].y - h[0].y;
+  return Math.atan2(-dx, -dy);
+}
+
+function handle(label, h) {
+  const isLeft = SWAP_HANDS ? label === "Right" : label === "Left";
+  if (isLeft) {
+    const degree = fingerDegree(h);
+    const L = lean(h);
+    if (L > 0.15) minor = false;    // lean toward center = major
+    if (L < -0.15) minor = true;    // lean away = minor
+    // Pitch shift: top half raises, bottom fifth lowers (only when the toggle is on)
+    const y = h[9].y;
+    const newShift = (raiseOn && y < 0.5) ? 1 : (lowerOn && y > 0.8) ? -1 : 0;
+    if (newShift !== shift) { shift = newShift; updatePills(); }
+    want = degree >= 1 ? { degree } : null;
+  } else {
+    const n = rightFingers(h);
+    if (n >= 1 && n <= 4) voicing = n;
+    highOctave = !thumbOut(h);      // thumb in = higher octave, out = lower
+    const vol = -36 + (1 - Math.min(Math.max(h[0].y, 0), 1)) * 34;   // higher hand = louder
+    synth.volume.rampTo(vol, 0.1);
+    $("vol").style.width = ((vol + 36) / 34 * 100) + "%";
+    const t = Math.min(Math.max(0.5 + lean(h), 0), 1);               // inward = more filter (darker)
+    filter.frequency.rampTo(250 * Math.pow(16, t), 0.1);
+    $("bright").style.width = (t * 100) + "%";
+  }
+}
+
+// ---- Setup and loop ----
+let landmarker, lastTime = -1;
+$("start").onclick = async () => {
+  $("start").disabled = true;
+  try {
+    await Tone.start();
+    $("msg").textContent = "Loading hand tracking...";
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    video.srcObject = stream; await video.play();
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    const files = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await HandLandmarker.createFromOptions(files, {
+      baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" },
+      runningMode: "VIDEO", numHands: 2
+    });
+    $("intro").classList.add("hidden");
+    $("quality").textContent = "show your hands to the camera";
+    loop();
+  } catch (err) {
+    $("msg").textContent = "Could not start: " + err.message + ". Allow camera access and open this page through localhost or https.";
+    $("start").disabled = false;
+  }
+};
+
+function loop() {
+  if (video.currentTime !== lastTime) {
+    lastTime = video.currentTime;
+    const r = landmarker.detectForVideo(video, performance.now());
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    want = null;
+    r.landmarks.forEach((h, i) => {
+      const label = r.handedness[i][0].categoryName;
+      ctx.fillStyle = "#b9a8ff";
+      h.forEach(p => { ctx.beginPath(); ctx.arc(p.x * canvas.width, p.y * canvas.height, 4, 0, 7); ctx.fill(); });
+      handle(label, h);
+    });
+    apply();
+  }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
